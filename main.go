@@ -41,10 +41,10 @@ func search(path, substr string) bool {
 		return false
 	}
 	f, err := os.Open(path)
-	defer f.Close()
 	if err != nil {
 		panic(err)
 	}
+	defer f.Close()
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		if strings.Contains(scanner.Text(), substr) {

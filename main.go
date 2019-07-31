@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -13,43 +14,50 @@ import (
 	"sync"
 )
 
-const (
-	spacebar = " "
-)
+const spacebar = " "
 
 var nCores = runtime.NumCPU()
 
-func isTextFile(f *os.File) bool {
+func isTextFile(fp string) bool {
 	buffer := make([]byte, 512)
-	_, err := f.Read(buffer)
+	f, err := os.Open(fp)
 	if err != nil {
 		panic(err)
 	}
-	ct := http.DetectContentType(buffer)
-	return strings.Contains(ct, "text")
+	defer f.Close()
+	f.Read(buffer)
+	return strings.Contains(http.DetectContentType(buffer), "text")
+}
+
+func pathExist(p string) bool {
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		return false
+	}
+	return true
 }
 
 func search(path, substr string) bool {
+	if !isTextFile(path) {
+		return false
+	}
 	f, err := os.Open(path)
 	defer f.Close()
 	if err != nil {
 		panic(err)
 	}
-	if isTextFile(f) {
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			if strings.Contains(scanner.Text(), substr) {
-				return true
-			}
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), substr) {
+			return true
 		}
 	}
 	return false
 }
 
-func searcher(substr string, fpaths chan string, matches []string, wg *sync.WaitGroup) {
-	for fpath := range fpaths {
-		if search(fpath, substr) {
-			matches = append(matches, fpath)
+func worker(substr string, fpaths chan string, matches []string, wg *sync.WaitGroup) {
+	for fp := range fpaths {
+		if search(fp, substr) {
+			matches = append(matches, fp)
 		}
 	}
 	wg.Done()
@@ -60,12 +68,13 @@ func GoFindSubString(substr string, paths []string) []string {
 	fpaths := make(chan string)
 	wg := new(sync.WaitGroup)
 
-	for i := 0; i < nCores; i++ {
-		wg.Add(1)
-		go searcher(substr, fpaths, matches, wg)
+	// Insuring that all input filepaths exist.
+	for _, p := range paths {
+		if !pathExist(p) {
+			m := fmt.Sprintf("[ERROR] %q does not exist", p)
+			panic(errors.New(m))
+		}
 	}
-
-	// TODO: Insure that input paths exist
 
 	// Insuring that all paths are absolute
 	for i, path := range paths {
@@ -74,6 +83,12 @@ func GoFindSubString(substr string, paths []string) []string {
 			panic(err)
 		}
 		paths[i] = path
+	}
+
+	// Starting go routines
+	for i := 0; i < nCores; i++ {
+		wg.Add(1)
+		go worker(substr, fpaths, matches, wg)
 	}
 
 	// Feeding input paths
@@ -93,9 +108,7 @@ func GoFindSubString(substr string, paths []string) []string {
 				p := filepath.Join(path, item.Name())
 				paths = append(paths, p)
 			}
-			continue
-		}
-		if stat.Mode().IsRegular() {
+		} else {
 			fpaths <- path
 		}
 	}
@@ -108,15 +121,11 @@ func GoFindSubString(substr string, paths []string) []string {
 func main() {
 	substring := flag.String("substring", "", "The search string.")
 	paths := flag.String("paths", "./", "A list paths the that will be searched separated by a space.")
-
 	flag.Parse()
-
 	if *substring == "" {
 		panic("[FAIL] no substring argument was passed.")
 	}
-
 	matches := GoFindSubString(*substring, strings.Split(*paths, spacebar))
-
 	for _, match := range matches {
 		fmt.Println(match)
 	}

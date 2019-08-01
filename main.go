@@ -47,7 +47,7 @@ func main() {
 }
 
 func args() (string, []string) {
-	substring := flag.String("substring", "", "The search string.")
+	substring := flag.String("substr", "", "The search string.")
 	paths := flag.String("paths", "./", "A list paths the that will be searched separated by a space.")
 	flag.Parse()
 	if *substring == "" {

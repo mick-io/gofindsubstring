@@ -19,22 +19,22 @@ import (
 
 const spacebar = " "
 
-var (
-	nCores             = runtime.NumCPU()
-	filePathChan       = make(chan string, nCores)
-	filesWithSubString = make([]string, 0)
-)
+var filesWithSubString = make([]string, 0)
 
 func main() {
+	nCores := runtime.NumCPU()
+	filePathChan := make(chan string, nCores)
+
 	feedWG, workersWG := new(sync.WaitGroup), new(sync.WaitGroup)
 	substring, searchPaths := args()
+
 	feedWG.Add(1)
-	go feedFilePathChannel(searchPaths, feedWG)
+	go feedFilePathChannel(searchPaths, filePathChan, feedWG)
 
 	// Starting workers
 	for i := 0; i < nCores; i++ {
 		workersWG.Add(1)
-		go worker(substring, workersWG)
+		go worker(substring, filePathChan, workersWG)
 	}
 
 	feedWG.Wait()
@@ -56,7 +56,7 @@ func args() (string, []string) {
 	return *substring, strings.Split(*paths, spacebar)
 }
 
-func feedFilePathChannel(searchPaths []string, wg *sync.WaitGroup) {
+func feedFilePathChannel(searchPaths []string, fpChan chan string, wg *sync.WaitGroup) {
 	for i := 0; i < len(searchPaths); i++ {
 		p := searchPaths[i]
 		fi, err := os.Stat(p)
@@ -73,14 +73,14 @@ func feedFilePathChannel(searchPaths []string, wg *sync.WaitGroup) {
 				searchPaths = append(searchPaths, subpath)
 			}
 		} else {
-			filePathChan <- p
+			fpChan <- p
 		}
 	}
 	wg.Done()
 }
 
-func worker(substring string, wg *sync.WaitGroup) {
-	for fp := range filePathChan {
+func worker(substring string, fpChan chan string, wg *sync.WaitGroup) {
+	for fp := range fpChan {
 		if !isTextFile(fp) {
 			continue
 		}

@@ -2,44 +2,104 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 )
 
+// TODO: Add count occurrences feature
+
 const spacebar = " "
 
-var nCores = runtime.NumCPU()
+var (
+	nCores             = runtime.NumCPU()
+	filePathChan       = make(chan string, nCores)
+	filesWithSubString = make([]string, 0)
+)
+
+func args() (string, []string) {
+	substr := flag.String("substring", "", "The search string.")
+	paths := flag.String("paths", "./", "A list paths the that will be searched separated by a space.")
+	flag.Parse()
+	if *substr == "" {
+		panic("[FAIL] no substring argument was passed.")
+	}
+	return *substr, strings.Split(*paths, spacebar)
+}
+
+func main() {
+	feedWG, workersWG := new(sync.WaitGroup), new(sync.WaitGroup)
+	substring, searchPaths := args()
+	feedWG.Add(1)
+	go feedFilePathChannel(searchPaths, feedWG)
+
+	// Starting workers
+	for i := 0; i < nCores; i++ {
+		workersWG.Add(1)
+		go worker(substring, workersWG)
+	}
+
+	feedWG.Wait()
+	close(filePathChan)
+	workersWG.Wait()
+
+	for _, fp := range filesWithSubString {
+		fmt.Println(fp)
+	}
+}
+
+func feedFilePathChannel(searchPaths []string, wg *sync.WaitGroup) {
+	for i := 0; i < len(searchPaths); i++ {
+		p := searchPaths[i]
+		fi, err := os.Stat(p)
+		if err != nil {
+			panic(err)
+		}
+		if fi.IsDir() {
+			stats, err := ioutil.ReadDir(p)
+			if err != nil {
+				panic(err)
+			}
+			for _, stat := range stats {
+				subpath := filepath.Join(p, stat.Name())
+				searchPaths = append(searchPaths, subpath)
+			}
+		} else {
+			filePathChan <- p
+		}
+	}
+	wg.Done()
+}
+
+func worker(substr string, wg *sync.WaitGroup) {
+	for fp := range filePathChan {
+		if !isTextFile(fp) {
+			continue
+		}
+		if search(fp, substr) {
+			filesWithSubString = append(filesWithSubString, fp)
+		}
+	}
+	wg.Done()
+}
 
 func isTextFile(fp string) bool {
-	buffer := make([]byte, 512)
-	f, err := os.Open(fp)
+	cmd := exec.Command("file", fp)
+	res, err := cmd.Output()
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
-	f.Read(buffer)
-	return strings.Contains(http.DetectContentType(buffer), "text")
+	return strings.Contains(string(res), "text")
 }
 
-func pathExist(p string) bool {
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return false
-	}
-	return true
-}
-
+// TODO: Alter function to work with multi-line substrings.
 func search(path, substr string) bool {
-	if !isTextFile(path) {
-		return false
-	}
 	f, err := os.Open(path)
 	if err != nil {
 		panic(err)
@@ -52,81 +112,4 @@ func search(path, substr string) bool {
 		}
 	}
 	return false
-}
-
-func worker(substr string, fpaths chan string, matches []string, wg *sync.WaitGroup) {
-	for fp := range fpaths {
-		if search(fp, substr) {
-			matches = append(matches, fp)
-		}
-	}
-	wg.Done()
-}
-
-func GoFindSubString(substr string, paths []string) []string {
-	matches := make([]string, 0) // a slice of filepaths that contain the substring
-	fpaths := make(chan string)
-	wg := new(sync.WaitGroup)
-
-	// Insuring that all input filepaths exist.
-	for _, p := range paths {
-		if !pathExist(p) {
-			m := fmt.Sprintf("[ERROR] %q does not exist", p)
-			panic(errors.New(m))
-		}
-	}
-
-	// Insuring that all paths are absolute
-	for i, path := range paths {
-		path, err := filepath.Abs(path)
-		if err != nil {
-			panic(err)
-		}
-		paths[i] = path
-	}
-
-	// Starting go routines
-	for i := 0; i < nCores; i++ {
-		wg.Add(1)
-		go worker(substr, fpaths, matches, wg)
-	}
-
-	// Feeding input paths
-	for i := 0; i < len(paths); i++ {
-		path := paths[i]
-		stat, err := os.Stat(path)
-		if err != nil {
-			panic(err)
-		}
-		if stat.IsDir() {
-			// TODO: Consider reading a directory with a lower level function to improve performance.
-			contents, err := ioutil.ReadDir(stat.Name())
-			if err != nil {
-				panic(err)
-			}
-			for _, item := range contents {
-				p := filepath.Join(path, item.Name())
-				paths = append(paths, p)
-			}
-		} else {
-			fpaths <- path
-		}
-	}
-
-	close(fpaths)
-	wg.Wait()
-	return matches
-}
-
-func main() {
-	substring := flag.String("substring", "", "The search string.")
-	paths := flag.String("paths", "./", "A list paths the that will be searched separated by a space.")
-	flag.Parse()
-	if *substring == "" {
-		panic("[FAIL] no substring argument was passed.")
-	}
-	matches := GoFindSubString(*substring, strings.Split(*paths, spacebar))
-	for _, match := range matches {
-		fmt.Println(match)
-	}
 }

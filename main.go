@@ -47,13 +47,13 @@ func main() {
 }
 
 func args() (string, []string) {
-	substr := flag.String("substring", "", "The search string.")
+	substring := flag.String("substring", "", "The search string.")
 	paths := flag.String("paths", "./", "A list paths the that will be searched separated by a space.")
 	flag.Parse()
-	if *substr == "" {
+	if *substring == "" {
 		panic("[FAIL] no substring argument was passed.")
 	}
-	return *substr, strings.Split(*paths, spacebar)
+	return *substring, strings.Split(*paths, spacebar)
 }
 
 func feedFilePathChannel(searchPaths []string, wg *sync.WaitGroup) {
@@ -79,12 +79,12 @@ func feedFilePathChannel(searchPaths []string, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
-func worker(substr string, wg *sync.WaitGroup) {
+func worker(substring string, wg *sync.WaitGroup) {
 	for fp := range filePathChan {
 		if !isTextFile(fp) {
 			continue
 		}
-		if search(fp, substr) {
+		if search(fp, substring) {
 			filesWithSubString = append(filesWithSubString, fp)
 		}
 	}
@@ -102,7 +102,7 @@ func isTextFile(fp string) bool {
 }
 
 // TODO: Alter function to work with multi-line substrings.
-func search(path, substr string) bool {
+func search(path, substring string) bool {
 	f, err := os.Open(path)
 	if err != nil {
 		panic(err)
@@ -110,7 +110,7 @@ func search(path, substr string) bool {
 	defer f.Close()
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		if strings.Contains(scanner.Text(), substr) {
+		if strings.Contains(scanner.Text(), substring) {
 			return true
 		}
 	}

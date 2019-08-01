@@ -13,7 +13,9 @@ import (
 	"sync"
 )
 
-// TODO: Add count occurrences feature
+// TODO: Add count occurrences feature.
+// TODO: Write unit test.
+// TODO: Write readme.
 
 const spacebar = " "
 
@@ -22,16 +24,6 @@ var (
 	filePathChan       = make(chan string, nCores)
 	filesWithSubString = make([]string, 0)
 )
-
-func args() (string, []string) {
-	substr := flag.String("substring", "", "The search string.")
-	paths := flag.String("paths", "./", "A list paths the that will be searched separated by a space.")
-	flag.Parse()
-	if *substr == "" {
-		panic("[FAIL] no substring argument was passed.")
-	}
-	return *substr, strings.Split(*paths, spacebar)
-}
 
 func main() {
 	feedWG, workersWG := new(sync.WaitGroup), new(sync.WaitGroup)
@@ -52,6 +44,16 @@ func main() {
 	for _, fp := range filesWithSubString {
 		fmt.Println(fp)
 	}
+}
+
+func args() (string, []string) {
+	substr := flag.String("substring", "", "The search string.")
+	paths := flag.String("paths", "./", "A list paths the that will be searched separated by a space.")
+	flag.Parse()
+	if *substr == "" {
+		panic("[FAIL] no substring argument was passed.")
+	}
+	return *substr, strings.Split(*paths, spacebar)
 }
 
 func feedFilePathChannel(searchPaths []string, wg *sync.WaitGroup) {
@@ -89,6 +91,7 @@ func worker(substr string, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
+// TODO: Make Windows friendly
 func isTextFile(fp string) bool {
 	cmd := exec.Command("file", fp)
 	res, err := cmd.Output()
